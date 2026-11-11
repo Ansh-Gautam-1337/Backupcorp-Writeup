@@ -7,7 +7,7 @@
 
 > **Room:** BackupCorp
 > **Difficulty:** Easy
-> **Author:** <your-thm-username>
+> **Author: Ansh Gautam** <your-thm-username>
 > **Skills:** enumeration · web command injection · credential looting · Linux privilege escalation (sudo / GTFOBins)
 
 > **Note:** Flag values and the leaked password are intentionally **blurred** in the
