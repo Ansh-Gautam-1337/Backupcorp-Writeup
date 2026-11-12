@@ -1,4 +1,4 @@
-# BackupCorp — Official Writeup
+# BackupCorp - Official Writeup
 
 ![Platform](https://img.shields.io/badge/platform-TryHackMe-212c42)
 ![Difficulty](https://img.shields.io/badge/difficulty-Easy-brightgreen)
