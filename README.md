@@ -242,4 +242,4 @@ of them would have broken the chain.
 
 ---
 
-_Writeup by <your-thm-username>. Room: BackupCorp on TryHackMe._
+_Writeup by AnshGautam. Room: BackupCorp on TryHackMe._
